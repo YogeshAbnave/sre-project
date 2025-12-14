@@ -145,15 +145,15 @@ The AgentCore Gateway is configured through `gateway/config.yaml`. This configur
 # Copy this file to config.yaml and update with your environment-specific settings
 
 # AWS Configuration
-account_id: "YOUR_ACCOUNT_ID"
+account_id: "238415673903"
 region: "us-east-1"
-role_name: "YOUR_ROLE_NAME"
+role_name: "SRE-Agent-Gateway-Role"
 endpoint_url: "https://bedrock-agentcore-control.us-east-1.amazonaws.com"
 credential_provider_endpoint_url: "https://us-east-1.prod.agent-credential-provider.cognito.aws.dev"
 
 # Cognito Configuration
-user_pool_id: "YOUR_USER_POOL_ID"
-client_id: "YOUR_CLIENT_ID"
+user_pool_id: "24f8b478-0051-7015-95f1-1a826c96d7d2"
+client_id: "4e41t3t6dv60tdd1sco2ki8mp5"
 
 # S3 Configuration
 # OPTION 1: Auto-Create (Recommended)

@@ -159,7 +159,7 @@ class ConfigurationManager(ConfigurationManagerInterface):
                 
         # Check for placeholder values
         placeholder_values = [
-            'YOUR_ACCOUNT_ID', 'REGION', 'YOUR_ROLE_NAME', 'YOUR_USER_POOL_ID',
+            'YOUR_ACCOUNT_ID', 'REGION', '', 'YOUR_USER_POOL_ID',
             'YOUR_CLIENT_ID', 'your-bucket-name'
         ]
         
@@ -181,7 +181,7 @@ class ConfigurationManager(ConfigurationManagerInterface):
         config_template = {
             'account_id': 'YOUR_ACCOUNT_ID',
             'region': 'us-east-1',
-            'role_name': 'YOUR_ROLE_NAME',
+            'role_name': 'SRE-Agent-Gateway-Role',
             'endpoint_url': 'https://bedrock-agentcore-control.us-east-1.amazonaws.com',
             'credential_provider_endpoint_url': 'https://us-east-1.prod.agent-credential-provider.cognito.aws.dev',
             'user_pool_id': 'YOUR_USER_POOL_ID',

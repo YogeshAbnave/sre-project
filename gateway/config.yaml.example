@@ -9,7 +9,7 @@ region: "REGION"
 # For testing: This can be the role of your current EC2 instance or notebook
 # For production: Use a dedicated role for the gateway (recommended)
 # To find your current role, run: aws sts get-caller-identity
-role_name: "YOUR_ROLE_NAME"
+role_name: "SRE-Agent-Gateway-Role"
 endpoint_url: "https://bedrock-agentcore-control.REGION.amazonaws.com"
 credential_provider_endpoint_url: "https://REGION.prod.agent-credential-provider.cognito.aws.dev"
 
