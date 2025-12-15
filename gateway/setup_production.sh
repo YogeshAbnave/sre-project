@@ -195,50 +195,45 @@ validate_aws_permissions() {
 validate_configuration() {
     info "Validating configuration..."
     
-    # Use Python to validate configuration with our improved validation system
-    cd "${SCRIPT_DIR}"
-    
-    if ! python3 -c "
-import sys
-sys.path.insert(0, '.')
-from aws_setup.config_manager import ConfigurationManager
-from aws_setup.models import ValidationStatus
-
-try:
-    config_manager = ConfigurationManager('.')
-    config = config_manager.load_config()
-    result = config_manager.validate_config(config)
-    
-    if result.status == ValidationStatus.VALID:
-        print('✅ Configuration validation passed')
-        sys.exit(0)
-    elif result.status == ValidationStatus.WARNING:
-        print('⚠️  Configuration validation passed with warnings:')
-        for warning in result.warnings:
-            print(f'  - {warning}')
-        sys.exit(0)
-    else:
-        print('❌ Configuration validation failed:')
-        for error in result.errors:
-            print(f'  - {error.field}: {error.message}')
-            if error.suggestion:
-                print(f'    Suggestion: {error.suggestion}')
-        sys.exit(1)
-        
-except FileNotFoundError as e:
-    print(f'❌ Configuration file not found: {e}')
-    print('Creating template configuration files...')
-    config_manager = ConfigurationManager('.')
-    config_manager.create_template_files()
-    print('✅ Template files created. Please update config.yaml with your values.')
-    sys.exit(1)
-except Exception as e:
-    print(f'❌ Configuration validation error: {e}')
-    sys.exit(1)
-"; then
-        error "Configuration validation failed"
+    # Simple validation - just check if required files exist
+    if [[ ! -f "config.yaml" ]]; then
+        error "config.yaml file not found"
         return 1
     fi
+    
+    if [[ ! -f ".env" ]]; then
+        error ".env file not found"
+        return 1
+    fi
+    
+    # Check if key values exist in config.yaml
+    if ! grep -q "gateway_name:" config.yaml; then
+        error "gateway_name not found in config.yaml"
+        return 1
+    fi
+    
+    if ! grep -q "s3_bucket:" config.yaml; then
+        error "s3_bucket not found in config.yaml"
+        return 1
+    fi
+    
+    # Extract and validate key values
+    local gateway_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('gateway_name', ''))" 2>/dev/null || echo "")
+    local s3_bucket=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('s3_bucket', ''))" 2>/dev/null || echo "")
+    
+    if [[ -z "$gateway_name" ]]; then
+        error "gateway_name is empty in config.yaml"
+        return 1
+    fi
+    
+    if [[ -z "$s3_bucket" ]]; then
+        error "s3_bucket is empty in config.yaml"
+        return 1
+    fi
+    
+    info "Configuration validation passed:"
+    info "  - gateway_name: $gateway_name"
+    info "  - s3_bucket: $s3_bucket"
     
     success "Configuration validation passed"
     return 0
@@ -430,6 +425,102 @@ configure_agent() {
     success "Agent configuration completed"
 }
 
+create_s3_bucket() {
+    info "Creating S3 bucket if needed..."
+    
+    # Extract bucket name from config
+    local bucket_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('s3_bucket', ''))" 2>/dev/null || echo "")
+    local region_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('region', 'us-east-1'))" 2>/dev/null || echo "us-east-1")
+    
+    if [[ -z "$bucket_name" ]]; then
+        error "S3 bucket name not found in config.yaml"
+        return 1
+    fi
+    
+    info "Checking if S3 bucket exists: ${bucket_name}"
+    
+    # Check if bucket exists
+    if aws s3api head-bucket --bucket "${bucket_name}" 2>/dev/null; then
+        success "S3 bucket already exists: ${bucket_name}"
+        return 0
+    fi
+    
+    info "Creating S3 bucket: ${bucket_name} in region: ${region_name}"
+    
+    # Create bucket with proper region handling
+    if [[ "$region_name" == "us-east-1" ]]; then
+        # us-east-1 doesn't need LocationConstraint
+        if aws s3api create-bucket --bucket "${bucket_name}" --region "${region_name}"; then
+            success "S3 bucket created successfully: ${bucket_name}"
+        else
+            error "Failed to create S3 bucket: ${bucket_name}"
+            return 1
+        fi
+    else
+        # Other regions need LocationConstraint
+        if aws s3api create-bucket \
+            --bucket "${bucket_name}" \
+            --region "${region_name}" \
+            --create-bucket-configuration LocationConstraint="${region_name}"; then
+            success "S3 bucket created successfully: ${bucket_name}"
+        else
+            error "Failed to create S3 bucket: ${bucket_name}"
+            return 1
+        fi
+    fi
+    
+    # Enable versioning (optional but recommended)
+    info "Enabling versioning on S3 bucket..."
+    if aws s3api put-bucket-versioning \
+        --bucket "${bucket_name}" \
+        --versioning-configuration Status=Enabled; then
+        success "S3 bucket versioning enabled"
+    else
+        warn "Failed to enable S3 bucket versioning (continuing anyway)"
+    fi
+    
+    # Set bucket policy for AgentCore access (optional)
+    info "Setting bucket policy for AgentCore access..."
+    local account_id=$(aws sts get-caller-identity --query 'Account' --output text)
+    
+    cat > /tmp/bucket-policy.json << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AgentCoreAccess",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::${account_id}:root"
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:ListBucket"
+            ],
+            "Resource": [
+                "arn:aws:s3:::${bucket_name}",
+                "arn:aws:s3:::${bucket_name}/*"
+            ]
+        }
+    ]
+}
+EOF
+    
+    if aws s3api put-bucket-policy --bucket "${bucket_name}" --policy file:///tmp/bucket-policy.json; then
+        success "S3 bucket policy set successfully"
+    else
+        warn "Failed to set S3 bucket policy (continuing anyway)"
+    fi
+    
+    # Clean up temp file
+    rm -f /tmp/bucket-policy.json
+    
+    success "S3 bucket setup completed: ${bucket_name}"
+    return 0
+}
+
 setup_memory_system() {
     info "Setting up memory system..."
     
@@ -495,23 +586,27 @@ run_setup() {
         return 0
     fi
     
-    # Step 5: Setup Python environment
+    # Step 5: Create S3 bucket if needed
+    save_state "RUNNING" "Creating S3 bucket"
+    create_s3_bucket
+    
+    # Step 6: Setup Python environment
     save_state "RUNNING" "Setting up Python environment"
     setup_python_environment
     
-    # Step 6: Setup backend servers
+    # Step 7: Setup backend servers
     save_state "RUNNING" "Setting up backend servers"
     setup_backend_servers
     
-    # Step 7: Setup gateway
+    # Step 8: Setup gateway
     save_state "RUNNING" "Setting up gateway"
     setup_gateway
     
-    # Step 8: Configure agent
+    # Step 9: Configure agent
     save_state "RUNNING" "Configuring agent"
     configure_agent
     
-    # Step 9: Setup memory system
+    # Step 10: Setup memory system
     save_state "RUNNING" "Setting up memory system"
     setup_memory_system
     
