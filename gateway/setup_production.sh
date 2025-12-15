@@ -206,34 +206,31 @@ validate_configuration() {
         return 1
     fi
     
-    # Check if key values exist in config.yaml
-    if ! grep -q "gateway_name:" config.yaml; then
-        error "gateway_name not found in config.yaml"
-        return 1
-    fi
+    # Extract values using grep and cut (more reliable than Python YAML)
+    local gateway_name=$(grep "^gateway_name:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
+    local s3_bucket=$(grep "^s3_bucket:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
+    local region=$(grep "^region:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
     
-    if ! grep -q "s3_bucket:" config.yaml; then
-        error "s3_bucket not found in config.yaml"
-        return 1
-    fi
+    info "Found configuration values:"
+    info "  - gateway_name: '$gateway_name'"
+    info "  - s3_bucket: '$s3_bucket'"
+    info "  - region: '$region'"
     
-    # Extract and validate key values
-    local gateway_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('gateway_name', ''))" 2>/dev/null || echo "")
-    local s3_bucket=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('s3_bucket', ''))" 2>/dev/null || echo "")
-    
+    # Check if values are not empty
     if [[ -z "$gateway_name" ]]; then
-        error "gateway_name is empty in config.yaml"
+        error "gateway_name is missing or empty in config.yaml"
         return 1
     fi
     
     if [[ -z "$s3_bucket" ]]; then
-        error "s3_bucket is empty in config.yaml"
+        error "s3_bucket is missing or empty in config.yaml"
         return 1
     fi
     
-    info "Configuration validation passed:"
-    info "  - gateway_name: $gateway_name"
-    info "  - s3_bucket: $s3_bucket"
+    if [[ -z "$region" ]]; then
+        error "region is missing or empty in config.yaml"
+        return 1
+    fi
     
     success "Configuration validation passed"
     return 0
@@ -359,14 +356,14 @@ setup_gateway() {
     # Create credential provider
     info "Creating API key credential provider..."
     
-    # Extract values more robustly using Python
-    local provider_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml'))['credential_provider_name'])")
-    local region_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml'))['region'])")
-    local endpoint_url=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml'))['credential_provider_endpoint_url'])")
+    # Extract values using grep/cut (more reliable)
+    local provider_name=$(grep "^credential_provider_name:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
+    local region_name=$(grep "^region:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
+    local endpoint_url=$(grep "^credential_provider_endpoint_url:" config.yaml | cut -d':' -f2- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
     
-    info "Using region: ${region_name}"
-    info "Using provider name: ${provider_name}"
-    info "Using endpoint: ${endpoint_url}"
+    info "Using region: '${region_name}'"
+    info "Using provider name: '${provider_name}'"
+    info "Using endpoint: '${endpoint_url}'"
     
     if python3 create_credentials_provider.py \
         --credential-provider-name "${provider_name}" \
@@ -428,9 +425,13 @@ configure_agent() {
 create_s3_bucket() {
     info "Creating S3 bucket if needed..."
     
-    # Extract bucket name from config
-    local bucket_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('s3_bucket', ''))" 2>/dev/null || echo "")
-    local region_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml')).get('region', 'us-east-1'))" 2>/dev/null || echo "us-east-1")
+    # Extract bucket name from config using grep/cut (more reliable)
+    local bucket_name=$(grep "^s3_bucket:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
+    local region_name=$(grep "^region:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "us-east-1")
+    
+    info "Extracted values:"
+    info "  - bucket_name: '$bucket_name'"
+    info "  - region_name: '$region_name'"
     
     if [[ -z "$bucket_name" ]]; then
         error "S3 bucket name not found in config.yaml"
