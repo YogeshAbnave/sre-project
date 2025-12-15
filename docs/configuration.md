@@ -145,26 +145,18 @@ The AgentCore Gateway is configured through `gateway/config.yaml`. This configur
 # Copy this file to config.yaml and update with your environment-specific settings
 
 # AWS Configuration
-account_id: "238415673903"
+account_id: "YOUR_ACCOUNT_ID"
 region: "us-east-1"
-role_name: "SRE-Agent-Gateway-Role"
+role_name: "YOUR_ROLE_NAME"
 endpoint_url: "https://bedrock-agentcore-control.us-east-1.amazonaws.com"
 credential_provider_endpoint_url: "https://us-east-1.prod.agent-credential-provider.cognito.aws.dev"
 
 # Cognito Configuration
-user_pool_id: "24f8b478-0051-7015-95f1-1a826c96d7d2"
-client_id: "4e41t3t6dv60tdd1sco2ki8mp5"
+user_pool_id: "YOUR_USER_POOL_ID"
+client_id: "YOUR_CLIENT_ID"
 
 # S3 Configuration
-# OPTION 1: Auto-Create (Recommended)
-# Leave s3_bucket empty or unspecified, and create_gateway.sh will automatically create a bucket
-# with name format: sreagent-{uuid}
-s3_bucket: ""  # Leave empty for auto-creation
-
-# OPTION 2: Manual Bucket
-# Uncomment below and specify your own bucket name if you prefer to manage the bucket yourself
-# s3_bucket: "your-custom-bucket-name"
-
+s3_bucket: "your-agentcore-schemas-bucket"
 s3_path_prefix: "devops-multiagent-demo"  # Path prefix for OpenAPI schema files
 
 # Provider Configuration
@@ -218,16 +210,6 @@ target_description: "S3 target for OpenAPI schema"
 - **Purpose**: User personas and preferences for memory-enhanced personalization
 - **Setup**: Edit directly to add or modify user personas
 - **Content**: Predefined user preferences (Alice: technical, Carol: executive)
-
-### S3 Bucket Configuration
-- **Location**: Specified in `gateway/config.yaml` under `s3_bucket` parameter
-- **Purpose**: Storage for OpenAPI specification files used by the gateway
-- **Auto-Creation**:
-  - If `s3_bucket` is empty or not specified in config, the `create_gateway.sh` script will automatically create a bucket
-  - Auto-created bucket naming format: `sreagent-{uuid}` (e.g., `sreagent-550e8400-e29b-41d4-a716-446655440000`)
-  - This format complies with AWS S3 bucket naming restrictions
-- **Manual Bucket**: You can also specify your own bucket name in `gateway/config.yaml` if you prefer to create and manage the bucket yourself
-- **Note**: Requires AWS credentials with S3 bucket creation permissions (`s3:CreateBucket`, `s3:PutObject`)
 
 ### OpenAPI Specifications
 - **Location**: `backend/openapi_specs/*.yaml`

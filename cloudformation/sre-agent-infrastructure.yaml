@@ -1,0 +1,703 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Complete AWS infrastructure for SRE Agent production deployment with Bedrock integration'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: 'sre-agent'
+    Description: 'Name prefix for all resources'
+    
+  Environment:
+    Type: String
+    Default: 'production'
+    AllowedValues: ['development', 'staging', 'production']
+    Description: 'Environment name'
+    
+  InstanceType:
+    Type: String
+    Default: 't3.xlarge'
+    AllowedValues: ['t3.large', 't3.xlarge', 't3.2xlarge', 'm5.large', 'm5.xlarge']
+    Description: 'EC2 instance type for SRE Agent'
+    
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: 'EC2 Key Pair for SSH access'
+    
+  SSHAccessCIDR:
+    Type: String
+    Default: '0.0.0.0/0'
+    Description: 'CIDR block for SSH access (restrict to your IP for security)'
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+    
+  DomainName:
+    Type: String
+    Description: 'Domain name for SSL certificate (e.g., sre-agent.yourdomain.com)'
+    Default: ''
+    
+  CertificateArn:
+    Type: String
+    Description: 'ARN of SSL certificate in ACM (optional - will use Let\'s Encrypt if empty)'
+    Default: ''
+
+Conditions:
+  HasCustomCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+  HasDomainName: !Not [!Equals [!Ref DomainName, '']]
+
+Resources:
+  # VPC and Networking
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: '10.0.0.0/16'
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-vpc'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-igw'
+        - Key: Environment
+          Value: !Ref Environment
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: '10.0.1.0/24'
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-public-subnet'
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: '10.0.2.0/24'
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-private-subnet'
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-public-rt'
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Groups
+  SREAgentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-sg'
+      GroupDescription: 'Security group for SRE Agent EC2 instance'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHAccessCIDR
+          Description: 'SSH access'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: '0.0.0.0/0'
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 8011
+          ToPort: 8014
+          CidrIp: '0.0.0.0/0'
+          Description: 'Backend API services'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: '0.0.0.0/0'
+          Description: 'HTTP traffic for Let\'s Encrypt validation'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: '0.0.0.0/0'
+          Description: 'All outbound traffic'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Roles and Policies
+  SREAgentEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeAgent
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                  - bedrock:ListCustomModels
+                  - bedrock:GetCustomModel
+                Resource: '*'
+        - PolicyName: BedrockAgentCoreAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:*
+                Resource: '*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub '${S3Bucket}/*'
+                  - !Ref S3Bucket
+        - PolicyName: CognitoAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:DescribeUserPool
+                  - cognito-idp:DescribeUserPoolClient
+                  - cognito-idp:ListUserPools
+                  - cognito-idp:ListUserPoolClients
+                  - cognito-idp:AdminInitiateAuth
+                  - cognito-idp:AdminRespondToAuthChallenge
+                Resource: '*'
+        - PolicyName: CloudWatchAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                  - logs:DescribeLogGroups
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                Resource: '*'
+        - PolicyName: SSMAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                  - ssm:PutParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-ec2-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+  SREAgentInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectName}-${Environment}-instance-profile'
+      Roles:
+        - !Ref SREAgentEC2Role
+
+  BedrockAgentCoreRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-agentcore-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockAgentCoreFullAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:*
+                  - bedrock-agentcore:*
+                  - s3:GetObject
+                  - s3:PutObject
+                  - cognito-idp:*
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-agentcore-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # S3 Bucket for OpenAPI Schemas and Artifacts
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-schemas-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicReadOnly: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-schemas'
+        - Key: Environment
+          Value: !Ref Environment
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowAgentCoreAccess
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BedrockAgentCoreRole.Arn
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource: !Sub '${S3Bucket}/*'
+          - Sid: AllowEC2InstanceAccess
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt SREAgentEC2Role.Arn
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - !Ref S3Bucket
+              - !Sub '${S3Bucket}/*'
+
+  # Cognito User Pool
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${ProjectName}-${Environment}-user-pool'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      UserPoolTags:
+        Name: !Sub '${ProjectName}-${Environment}-user-pool'
+        Environment: !Ref Environment
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub '${ProjectName}-${Environment}-client'
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: true
+      AllowedOAuthFlows:
+        - client_credentials
+      AllowedOAuthScopes:
+        - !Sub '${CognitoResourceServer}/read'
+        - !Sub '${CognitoResourceServer}/write'
+      AllowedOAuthFlowsUserPoolClient: true
+      SupportedIdentityProviders:
+        - COGNITO
+
+  CognitoResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      Identifier: !Sub '${ProjectName}-api'
+      Name: !Sub '${ProjectName} API Resource Server'
+      Scopes:
+        - ScopeName: read
+          ScopeDescription: 'Read access to SRE Agent APIs'
+        - ScopeName: write
+          ScopeDescription: 'Write access to SRE Agent APIs'
+
+  CognitoUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub '${ProjectName}-${Environment}-${AWS::AccountId}'
+      UserPoolId: !Ref CognitoUserPool
+
+  # CloudWatch Log Groups
+  SREAgentLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/ec2/${ProjectName}-${Environment}'
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-logs'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # SSM Parameters for Configuration
+  SSMParameterAccountId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/account_id'
+      Type: String
+      Value: !Ref AWS::AccountId
+      Description: 'AWS Account ID for SRE Agent'
+      Tags:
+        Environment: !Ref Environment
+
+  SSMParameterRegion:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/region'
+      Type: String
+      Value: !Ref AWS::Region
+      Description: 'AWS Region for SRE Agent'
+      Tags:
+        Environment: !Ref Environment
+
+  SSMParameterS3Bucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/s3_bucket'
+      Type: String
+      Value: !Ref S3Bucket
+      Description: 'S3 Bucket name for SRE Agent schemas'
+      Tags:
+        Environment: !Ref Environment
+
+  SSMParameterUserPoolId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/user_pool_id'
+      Type: String
+      Value: !Ref CognitoUserPool
+      Description: 'Cognito User Pool ID for SRE Agent'
+      Tags:
+        Environment: !Ref Environment
+
+  SSMParameterClientId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/config/client_id'
+      Type: String
+      Value: !Ref CognitoUserPoolClient
+      Description: 'Cognito Client ID for SRE Agent'
+      Tags:
+        Environment: !Ref Environment
+
+  # EC2 Instance
+  SREAgentInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64}}'
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref SREAgentInstanceProfile
+      SecurityGroupIds:
+        - !Ref SREAgentSecurityGroup
+      SubnetId: !Ref PublicSubnet
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 50
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          
+          # Install required packages
+          yum install -y git docker python3 python3-pip jq curl wget unzip
+          
+          # Install AWS CLI v2
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          
+          # Install UV package manager
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          source ~/.bashrc
+          
+          # Start and enable Docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -a -G docker ec2-user
+          
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+          rpm -U ./amazon-cloudwatch-agent.rpm
+          
+          # Create application directory
+          mkdir -p /opt/sre-agent
+          chown ec2-user:ec2-user /opt/sre-agent
+          
+          # Create logs directory
+          mkdir -p /var/log/sre-agent
+          chown ec2-user:ec2-user /var/log/sre-agent
+          
+          # Install Certbot for Let's Encrypt (if no custom certificate)
+          if [ -z "${CertificateArn}" ]; then
+            yum install -y certbot python3-certbot-nginx
+          fi
+          
+          # Create SSL directory
+          mkdir -p /opt/ssl
+          chown ec2-user:ec2-user /opt/ssl
+          
+          # Set up environment variables
+          cat > /etc/environment << EOF
+          AWS_DEFAULT_REGION=${AWS::Region}
+          PROJECT_NAME=${ProjectName}
+          ENVIRONMENT=${Environment}
+          S3_BUCKET=${S3Bucket}
+          USER_POOL_ID=${CognitoUserPool}
+          CLIENT_ID=${CognitoUserPoolClient}
+          COGNITO_DOMAIN=https://${CognitoUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com
+          EOF
+          
+          # Create systemd service for SRE Agent
+          cat > /etc/systemd/system/sre-agent.service << EOF
+          [Unit]
+          Description=SRE Agent Service
+          After=network.target
+          
+          [Service]
+          Type=simple
+          User=ec2-user
+          WorkingDirectory=/opt/sre-agent
+          Environment=PATH=/home/ec2-user/.local/bin:/usr/local/bin:/usr/bin:/bin
+          EnvironmentFile=/etc/environment
+          ExecStart=/home/ec2-user/.local/bin/uv run sre-agent --interactive
+          Restart=always
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          # Configure CloudWatch agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << EOF
+          {
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/var/log/sre-agent/*.log",
+                      "log_group_name": "${SREAgentLogGroup}",
+                      "log_stream_name": "{instance_id}/sre-agent"
+                    },
+                    {
+                      "file_path": "/var/log/messages",
+                      "log_group_name": "${SREAgentLogGroup}",
+                      "log_stream_name": "{instance_id}/system"
+                    }
+                  ]
+                }
+              }
+            },
+            "metrics": {
+              "namespace": "SREAgent/${Environment}",
+              "metrics_collected": {
+                "cpu": {
+                  "measurement": ["cpu_usage_idle", "cpu_usage_iowait", "cpu_usage_user", "cpu_usage_system"],
+                  "metrics_collection_interval": 60
+                },
+                "disk": {
+                  "measurement": ["used_percent"],
+                  "metrics_collection_interval": 60,
+                  "resources": ["*"]
+                },
+                "mem": {
+                  "measurement": ["mem_used_percent"],
+                  "metrics_collection_interval": 60
+                }
+              }
+            }
+          }
+          EOF
+          
+          # Start CloudWatch agent
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+          
+          # Signal CloudFormation that instance is ready
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource SREAgentInstance --region ${AWS::Region}
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-instance'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+
+Outputs:
+  VPCId:
+    Description: 'VPC ID'
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VPC-ID'
+
+  PublicSubnetId:
+    Description: 'Public Subnet ID'
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnet-ID'
+
+  InstanceId:
+    Description: 'EC2 Instance ID'
+    Value: !Ref SREAgentInstance
+    Export:
+      Name: !Sub '${AWS::StackName}-Instance-ID'
+
+  InstancePublicIP:
+    Description: 'EC2 Instance Public IP'
+    Value: !GetAtt SREAgentInstance.PublicIp
+    Export:
+      Name: !Sub '${AWS::StackName}-Instance-PublicIP'
+
+  InstancePrivateIP:
+    Description: 'EC2 Instance Private IP'
+    Value: !GetAtt SREAgentInstance.PrivateIp
+    Export:
+      Name: !Sub '${AWS::StackName}-Instance-PrivateIP'
+
+  S3BucketName:
+    Description: 'S3 Bucket Name'
+    Value: !Ref S3Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3Bucket-Name'
+
+  EC2RoleArn:
+    Description: 'EC2 Instance Role ARN'
+    Value: !GetAtt SREAgentEC2Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EC2Role-ARN'
+
+  AgentCoreRoleArn:
+    Description: 'Bedrock AgentCore Role ARN'
+    Value: !GetAtt BedrockAgentCoreRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentCoreRole-ARN'
+
+  UserPoolId:
+    Description: 'Cognito User Pool ID'
+    Value: !Ref CognitoUserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPool-ID'
+
+  UserPoolClientId:
+    Description: 'Cognito User Pool Client ID'
+    Value: !Ref CognitoUserPoolClient
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolClient-ID'
+
+  CognitoDomain:
+    Description: 'Cognito Domain URL'
+    Value: !Sub 'https://${CognitoUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com'
+    Export:
+      Name: !Sub '${AWS::StackName}-Cognito-Domain'
+
+  SecurityGroupId:
+    Description: 'Security Group ID'
+    Value: !Ref SREAgentSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroup-ID'
+
+  SSHCommand:
+    Description: 'SSH Command to connect to instance'
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${SREAgentInstance.PublicIp}'
+
+  NextSteps:
+    Description: 'Next steps for deployment'
+    Value: !Sub |
+      1. SSH to instance: ssh -i ${KeyPairName}.pem ec2-user@${SREAgentInstance.PublicIp}
+      2. Clone SRE Agent repository
+      3. Configure domain and SSL certificate
+      4. Run deployment script: ./deploy-sre-agent.sh
+      5. Access application at: https://${DomainName} (after DNS configuration)

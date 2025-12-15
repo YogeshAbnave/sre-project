@@ -1,8 +1,0 @@
-# Testing dependencies for AWS gateway setup system
-pytest>=7.0.0
-hypothesis>=6.0.0
-pytest-mock>=3.0.0
-pytest-cov>=4.0.0
-pytest-asyncio>=0.21.0
-moto>=4.0.0  # AWS service mocking
-boto3-stubs[bedrock,s3,iam]>=1.0.0  # Type stubs for boto3

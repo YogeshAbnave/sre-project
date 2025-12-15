@@ -9,7 +9,7 @@ region: "REGION"
 # For testing: This can be the role of your current EC2 instance or notebook
 # For production: Use a dedicated role for the gateway (recommended)
 # To find your current role, run: aws sts get-caller-identity
-role_name: "SRE-Agent-Gateway-Role"
+role_name: "YOUR_ROLE_NAME"
 endpoint_url: "https://bedrock-agentcore-control.REGION.amazonaws.com"
 credential_provider_endpoint_url: "https://REGION.prod.agent-credential-provider.cognito.aws.dev"
 
@@ -20,10 +20,7 @@ user_pool_id: "YOUR_USER_POOL_ID"
 client_id: "YOUR_CLIENT_ID"
 
 # S3 Configuration
-# AUTO-CREATE (Recommended): Leave s3_bucket empty and the create_gateway.sh script will
-# automatically create a bucket with name format: sreagent-{uuid}
-# MANUAL: Specify your own bucket name if you prefer to manage the bucket yourself
-s3_bucket: ""  # Leave empty for auto-creation, or specify your bucket name
+s3_bucket: "your-agentcore-schemas-bucket"
 s3_path_prefix: "devops-multiagent-demo"  # Path prefix for OpenAPI schema files
 
 # Provider Configuration

@@ -398,7 +398,7 @@ rm -rf deployment/.agent_arn .memory_id
 
 # Note: .env, .venv, and reports/ are preserved for development continuity
 ```
-<!-- hello -->
+
 ## Disclaimer
 The examples provided in this repository are for experimental and educational purposes only. They demonstrate concepts and techniques but are not intended for direct use in production environments. Make sure to have Amazon Bedrock Guardrails in place to protect against [prompt injection](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-injection.html).
 

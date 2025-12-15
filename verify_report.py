@@ -144,7 +144,7 @@ def _verify_report_with_claude(
         logger.info("Sending verification request to Claude 4 Sonnet...")
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-20250514",
             max_tokens=4096,
             temperature=0.1,  # Low temperature for consistent, accurate analysis
             messages=[{"role": "user", "content": prompt}],

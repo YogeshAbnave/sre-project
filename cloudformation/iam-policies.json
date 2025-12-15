@@ -1,0 +1,265 @@
+{
+  "BedrockFullAccessPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "BedrockModelAccess",
+        "Effect": "Allow",
+        "Action": [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:InvokeAgent",
+          "bedrock:ListFoundationModels",
+          "bedrock:GetFoundationModel",
+          "bedrock:ListCustomModels",
+          "bedrock:GetCustomModel"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "BedrockAgentCoreAccess",
+        "Effect": "Allow",
+        "Action": [
+          "bedrock-agentcore:*"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "BedrockKnowledgeBaseAccess",
+        "Effect": "Allow",
+        "Action": [
+          "bedrock:ListKnowledgeBases",
+          "bedrock:GetKnowledgeBase",
+          "bedrock:RetrieveAndGenerate",
+          "bedrock:Retrieve"
+        ],
+        "Resource": "*"
+      }
+    ]
+  },
+  "SREAgentS3Policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "S3BucketAccess",
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+          "s3:GetBucketVersioning"
+        ],
+        "Resource": "arn:aws:s3:::sre-agent-*"
+      },
+      {
+        "Sid": "S3ObjectAccess",
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:GetObjectVersion"
+        ],
+        "Resource": "arn:aws:s3:::sre-agent-*/*"
+      },
+      {
+        "Sid": "S3ListAllBuckets",
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListAllMyBuckets"
+        ],
+        "Resource": "*"
+      }
+    ]
+  },
+  "SREAgentCognitoPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "CognitoUserPoolAccess",
+        "Effect": "Allow",
+        "Action": [
+          "cognito-idp:DescribeUserPool",
+          "cognito-idp:DescribeUserPoolClient",
+          "cognito-idp:ListUserPools",
+          "cognito-idp:ListUserPoolClients",
+          "cognito-idp:AdminInitiateAuth",
+          "cognito-idp:AdminRespondToAuthChallenge",
+          "cognito-idp:InitiateAuth",
+          "cognito-idp:RespondToAuthChallenge"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "CognitoIdentityPoolAccess",
+        "Effect": "Allow",
+        "Action": [
+          "cognito-identity:GetId",
+          "cognito-identity:GetCredentialsForIdentity",
+          "cognito-identity:GetOpenIdToken"
+        ],
+        "Resource": "*"
+      }
+    ]
+  },
+  "SREAgentCloudWatchPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "CloudWatchLogsAccess",
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "CloudWatchMetricsAccess",
+        "Effect": "Allow",
+        "Action": [
+          "cloudwatch:PutMetricData",
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:GetMetricData"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "CloudWatchDashboardAccess",
+        "Effect": "Allow",
+        "Action": [
+          "cloudwatch:GetDashboard",
+          "cloudwatch:ListDashboards",
+          "cloudwatch:PutDashboard"
+        ],
+        "Resource": "*"
+      }
+    ]
+  },
+  "SREAgentSSMPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "SSMParameterAccess",
+        "Effect": "Allow",
+        "Action": [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath",
+          "ssm:PutParameter",
+          "ssm:DeleteParameter"
+        ],
+        "Resource": "arn:aws:ssm:*:*:parameter/sre-agent/*"
+      },
+      {
+        "Sid": "SSMSessionAccess",
+        "Effect": "Allow",
+        "Action": [
+          "ssm:StartSession",
+          "ssm:TerminateSession",
+          "ssm:ResumeSession",
+          "ssm:DescribeSessions",
+          "ssm:GetConnectionStatus"
+        ],
+        "Resource": "*"
+      }
+    ]
+  },
+  "BedrockAgentCoreTrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "Service": "bedrock-agentcore.amazonaws.com"
+        },
+        "Action": "sts:AssumeRole",
+        "Condition": {
+          "StringEquals": {
+            "aws:SourceAccount": "${AWS::AccountId}"
+          }
+        }
+      }
+    ]
+  },
+  "EC2TrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "Service": "ec2.amazonaws.com"
+        },
+        "Action": "sts:AssumeRole"
+      }
+    ]
+  },
+  "SREAgentComprehensivePolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "BedrockFullAccess",
+        "Effect": "Allow",
+        "Action": [
+          "bedrock:*",
+          "bedrock-agentcore:*"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "S3FullAccess",
+        "Effect": "Allow",
+        "Action": [
+          "s3:*"
+        ],
+        "Resource": [
+          "arn:aws:s3:::sre-agent-*",
+          "arn:aws:s3:::sre-agent-*/*"
+        ]
+      },
+      {
+        "Sid": "CognitoFullAccess",
+        "Effect": "Allow",
+        "Action": [
+          "cognito-idp:*",
+          "cognito-identity:*"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "CloudWatchFullAccess",
+        "Effect": "Allow",
+        "Action": [
+          "logs:*",
+          "cloudwatch:*"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "SSMAccess",
+        "Effect": "Allow",
+        "Action": [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath",
+          "ssm:PutParameter"
+        ],
+        "Resource": "arn:aws:ssm:*:*:parameter/sre-agent/*"
+      },
+      {
+        "Sid": "EC2MetadataAccess",
+        "Effect": "Allow",
+        "Action": [
+          "ec2:DescribeInstances",
+          "ec2:DescribeTags"
+        ],
+        "Resource": "*"
+      }
+    ]
+  }
+}
