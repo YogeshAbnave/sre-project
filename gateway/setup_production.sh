@@ -363,11 +363,21 @@ setup_gateway() {
     
     # Create credential provider
     info "Creating API key credential provider..."
+    
+    # Extract values more robustly using Python
+    local provider_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml'))['credential_provider_name'])")
+    local region_name=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml'))['region'])")
+    local endpoint_url=$(python3 -c "import yaml; print(yaml.safe_load(open('config.yaml'))['credential_provider_endpoint_url'])")
+    
+    info "Using region: ${region_name}"
+    info "Using provider name: ${provider_name}"
+    info "Using endpoint: ${endpoint_url}"
+    
     if python3 create_credentials_provider.py \
-        --credential-provider-name "$(grep credential_provider_name config.yaml | cut -d':' -f2 | tr -d ' ')" \
+        --credential-provider-name "${provider_name}" \
         --api-key "${BACKEND_API_KEY}" \
-        --region "$(grep region config.yaml | cut -d':' -f2 | tr -d ' ')" \
-        --endpoint-url "$(grep credential_provider_endpoint_url config.yaml | cut -d':' -f2 | tr -d ' ')"; then
+        --region "${region_name}" \
+        --endpoint-url "${endpoint_url}"; then
         success "Credential provider created successfully"
     else
         error "Failed to create credential provider"
