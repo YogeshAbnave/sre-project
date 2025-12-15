@@ -195,9 +195,15 @@ validate_aws_permissions() {
 validate_configuration() {
     info "Validating configuration..."
     
+    # Debug: Show current directory and files
+    info "Current directory: $(pwd)"
+    info "Files in directory:"
+    ls -la config.yaml* .env* 2>/dev/null || info "No config or env files found"
+    
     # Simple validation - just check if required files exist
     if [[ ! -f "config.yaml" ]]; then
         error "config.yaml file not found"
+        info "Available files: $(ls -la)"
         return 1
     fi
     
@@ -205,6 +211,10 @@ validate_configuration() {
         error ".env file not found"
         return 1
     fi
+    
+    # Debug: Show first few lines of config.yaml
+    info "First 10 lines of config.yaml:"
+    head -10 config.yaml
     
     # Extract values using grep and cut (more reliable than Python YAML)
     local gateway_name=$(grep "^gateway_name:" config.yaml | cut -d':' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/"//g' || echo "")
